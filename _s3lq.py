@@ -3,13 +3,13 @@ from scipy import linalg
 
 
 def s3lq(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.array, dict]:
-    n = b.size
+    n = b.shape[0]
 
     if not maxit:
         maxit = n
     
     if not x0:
-        x0 = np.zeros(n)
+        x0 = np.zeros(b.shape)
     x = x0
     
     if not callable(S):
@@ -58,3 +58,105 @@ def s3lq(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.
         xi_1, xi0 = xi0, xi1
 
     return x, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
+
+
+def bls3lq(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[np.ndarray, dict]:
+    n, p = B.shape
+
+    if not maxit:
+        maxit = n
+    
+    if not X0:
+        X0 = np.zeros((n, p))
+    X = X0
+    
+    if not callable(S):
+        S_Mut = lambda x: S @ x
+    else:
+        S_Mut = S
+    
+    R0 = B - (S_Mut(X0) + alpha * X0)
+    W1, R = linalg.qr(R0, mode='economic')
+    norm_r = linalg.norm(R)
+    W0, P_tilde = 0, W1
+    Xi_1 = Xi0 = 0
+    H1 = R
+
+    C_1, S_1, C0, S0 = [np.zeros((p, p)) for _ in range(4)]
+    Zeros, AlphaI = np.zeros((p, p)), alpha * np.eye(p)
+
+    flag, resvec = 1, np.array([norm_r])
+    for j in range(maxit):
+        if resvec[-1] / norm_r < tol:
+            flag = 0
+            break
+
+        if j == 0:
+            W = S_Mut(W1)
+        else:
+            W = S_Mut(W1) + W0 @ H1.T
+        W2, H2 = linalg.qr(W, mode='economic')
+
+        if j > 1:
+            T = np.hstack( (Zeros, H1) )
+            _blrotation_of_s3lq(T, C_1, S_1)
+            
+            Phi, Theta = T[:, :p], T[:, p:]
+        
+        if j == 1:
+            Theta = H1
+
+        if j > 0:
+            T = np.hstack( (Theta, AlphaI) )
+            _blrotation_of_s3lq(T, C0, S0)
+            
+            Omga = T[:, p:]
+        
+        if j == 0:
+            Omga = AlphaI
+
+        C_1, S_1 = C0.copy(), S0.copy()
+
+        T = np.hstack( (Omga, -H2.T) )
+        T1 = np.hstack( (P_tilde, W2) )
+        _blrotation_of_s3lq(T, C0, S0, T1)
+        
+        Omega, P, P_tilde = T[:, :p], T1[:, :p], T1[:, p:]
+
+        if j == 0:
+            Xi = linalg.solve_triangular(Omega, R, lower=True)
+        elif j == 1:
+            Xi = Zeros
+        else:
+            Xi = -linalg.solve_triangular(Omega, Phi @ Xi_1, lower=True)
+        
+        Tmp = P @ Xi
+        X = X + Tmp
+        R0 = R0 - (S_Mut(Tmp) + alpha * Tmp)
+        resvec = np.append(resvec, linalg.norm(R0))
+
+        H1 = H2
+        W0, W1 = W1, W2
+        Xi_1, Xi0 = Xi0, Xi
+
+    return X, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
+
+
+def _blrotation_of_s3lq(A, C, S, /, B=None):
+    p = C.shape[0]
+    for i in range(p):
+        for k in range(p):
+            index = p+i-k-1
+
+            if B is not None:
+                delta_tilde, gamma = A[i, index:index+2]
+                delta = np.sqrt( delta_tilde ** 2 + gamma ** 2 )
+                c, s = delta_tilde / delta, gamma / delta
+                C[k, i], S[k, i] = c, s
+            else:
+                c, s = C[k, i], S[k, i]
+            
+            Rot_Mat = np.array([[c, -s], [s, c]])
+            A[:, index:index+2] = A[:, index:index+2] @ Rot_Mat
+            if B is not None:
+                B[:, index:index+2] = B[:, index:index+2] @ Rot_Mat

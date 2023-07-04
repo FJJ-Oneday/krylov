@@ -121,7 +121,7 @@ def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[n
     X = X0
     
     if not callable(S):
-        S_Mut = lambda x: S.dot(x)
+        S_Mut = lambda x: S @ x
     else:
         S_Mut = S
     
@@ -142,9 +142,9 @@ def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[n
             break
 
         if j == 0:
-            W = S @ W1
+            W = S_Mut(W1)
         else:
-            W = S @ W1 + W0 @ H1.T
+            W = S_Mut(W1) + W0 @ H1.T
         W2, H2 = linalg.qr(W, mode='economic')
 
         if j > 1:
@@ -171,7 +171,7 @@ def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[n
             Omga_tilde = T[p:, :]
         
         if j == 0:
-            Omga_tilde = alpha * np.eye(p)
+            Omga_tilde = AlphaI
         
         C_1, S_1 = C0.copy(), S0.copy()
 
@@ -209,7 +209,7 @@ def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[n
     return X, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
 
 
-def _blrotation_of_s3mr(A, C, S, /, B=None) -> np.ndarray:
+def _blrotation_of_s3mr(A, C, S, /, B=None):
     p = C.shape[0]
     for i in range(p):
         for k in range(p):
