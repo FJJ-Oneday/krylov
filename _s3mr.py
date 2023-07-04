@@ -3,13 +3,13 @@ from scipy import linalg
 
 
 def s3mr(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.array, dict]:
-    n = b.size
+    n = b.shape[0]
 
     if not maxit:
         maxit = n
     
     if not x0:
-        x0 = np.zeros(n)
+        x0 = np.zeros(b.shape)
     x = x0
     
     if not callable(S):
@@ -54,6 +54,60 @@ def s3mr(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.
         c0, s_1, s0 = c1, s0, s1
 
     return x, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
+
+
+def gls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[np.array, dict]:
+    n = B.shape
+
+    if not maxit:
+        maxit = n
+    
+    if not X0:
+        X0 = np.zeros(B.shape)
+    X = X0
+    
+    if not callable(S):
+        S_Mut = lambda x: S @ x
+    else:
+        S_Mut = S
+    
+    R = B - (S_Mut(X0) + alpha * X0)
+
+    norm_r = linalg.norm(R)
+    delta_tilde = alpha
+    c0, s_1, s0 = 1, 0, 0
+    gamma1 = norm_r
+    phi_tilde = gamma1
+    W0, W1 = 0, R / gamma1
+    P_1 = P0 = 0
+
+    flag, resvec = 1, np.array([norm_r])
+    for j in range(maxit):
+        if resvec[-1] / norm_r < tol:
+            flag = 0
+            break
+
+        W = S_Mut(W1) + gamma1 * W0
+        gamma2 = linalg.norm(W)
+        delta = np.sqrt(delta_tilde ** 2 + gamma2 ** 2)
+        c1, s1 = delta_tilde / delta, gamma2 / delta
+        delta_tilde = alpha * c1 + gamma2 * c0 * s1
+        phi, phi_tilde = c1 * phi_tilde, -s1 * phi_tilde
+
+        if j < 2:
+            P = W1 / delta
+        else:
+            P = (W1 + gamma1 * s_1 * P_1) / delta
+        
+        X = X + phi * P
+        resvec = np.append(resvec, np.abs(phi_tilde))
+
+        gamma1 = gamma2
+        W0, W1 = W1, W / gamma1
+        P_1, P0 = P0, P
+        c0, s_1, s0 = c1, s0, s1
+
+    return X, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
 
 
 def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[np.array, dict]:
