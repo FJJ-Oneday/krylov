@@ -13,7 +13,10 @@ def s3lq(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.
     x = x0
     
     if not callable(S):
-        S_Mut = lambda x: S.dot(x)
+        if len(b.shape) == 1:
+            S_Mut = lambda x: S.dot(x)
+        else:
+            S_Mut = lambda x: S @ x
     else:
         S_Mut = S
     
@@ -30,7 +33,7 @@ def s3lq(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.
     flag, resvec = 1, np.array([norm_r])
     for j in range(maxit):
         if resvec[-1] / norm_r < tol:
-            flag = 1
+            flag = 0
             break
 
         w = S_Mut(w1) + gamma1 * w0

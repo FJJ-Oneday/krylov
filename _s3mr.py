@@ -13,7 +13,10 @@ def s3mr(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.
     x = x0
     
     if not callable(S):
-        S_Mut = lambda x: S.dot(x)
+        if len(b.shape) == 1:
+            S_Mut = lambda x: S.dot(x)
+        else:
+            S_Mut = lambda x: S @ x
     else:
         S_Mut = S
     
@@ -56,60 +59,6 @@ def s3mr(S, b, alpha, /, tol: float=1e-6, maxit: int=None, x0=None) -> tuple[np.
     return x, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
 
 
-def gls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[np.array, dict]:
-    n = B.shape
-
-    if not maxit:
-        maxit = n
-    
-    if not X0:
-        X0 = np.zeros(B.shape)
-    X = X0
-    
-    if not callable(S):
-        S_Mut = lambda x: S @ x
-    else:
-        S_Mut = S
-    
-    R = B - (S_Mut(X0) + alpha * X0)
-
-    norm_r = linalg.norm(R)
-    delta_tilde = alpha
-    c0, s_1, s0 = 1, 0, 0
-    gamma1 = norm_r
-    phi_tilde = gamma1
-    W0, W1 = 0, R / gamma1
-    P_1 = P0 = 0
-
-    flag, resvec = 1, np.array([norm_r])
-    for j in range(maxit):
-        if resvec[-1] / norm_r < tol:
-            flag = 0
-            break
-
-        W = S_Mut(W1) + gamma1 * W0
-        gamma2 = linalg.norm(W)
-        delta = np.sqrt(delta_tilde ** 2 + gamma2 ** 2)
-        c1, s1 = delta_tilde / delta, gamma2 / delta
-        delta_tilde = alpha * c1 + gamma2 * c0 * s1
-        phi, phi_tilde = c1 * phi_tilde, -s1 * phi_tilde
-
-        if j < 2:
-            P = W1 / delta
-        else:
-            P = (W1 + gamma1 * s_1 * P_1) / delta
-        
-        X = X + phi * P
-        resvec = np.append(resvec, np.abs(phi_tilde))
-
-        gamma1 = gamma2
-        W0, W1 = W1, W / gamma1
-        P_1, P0 = P0, P
-        c0, s_1, s0 = c1, s0, s1
-
-    return X, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
-
-
 def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[np.array, dict]:
     n, p = B.shape
 
@@ -149,12 +98,8 @@ def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[n
 
         if j > 1:
             T = np.vstack( (Zeros, -H1.T) )
-            T = _blrotation_of_s3mr(T, C_1, S_1)
-            # for i in range(p):
-            #     for k in range(p):
-            #         index = p + i - k - 1
-            #         c, s = C_1[k, i], S_1[k, i]
-            #         T[index:index+2, :] = np.array([[c, s], [-s, c]]) @ T[index:index+2, :]
+            _blrotation_of_s3mr(T, C_1, S_1)
+            
             Phi, Theta = T[:p, :], T[p:, :]
         
         if j == 1:
@@ -162,12 +107,8 @@ def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[n
 
         if j > 0:
             T = np.vstack( (Theta, AlphaI) )
-            T = _blrotation_of_s3mr(T, C0, S0)
-            # for i in range(p):
-            #     for k in range(p):
-            #         index = p + i - k - 1
-            #         c, s = C0[k, i], S0[k, i]
-            #         T[index:index+2, :] = np.array([[c, s], [-s, c]]) @ T[index:index+2, :]
+            _blrotation_of_s3mr(T, C0, S0)
+            
             Omga_tilde = T[p:, :]
         
         if j == 0:
@@ -177,19 +118,7 @@ def bls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[n
 
         T = np.vstack( (Omga_tilde, H2) )
         T1 = np.vstack( (G_tilde, Zeros) )
-        T, T1 = _blrotation_of_s3mr(T, C0, S0, T1)
-        # for i in range(p):
-        #     for k in range(p):
-        #         index = p + i - k -1
-
-        #         delta_tilde, gamma = T[index:index+2, i]
-        #         delta = np.sqrt( delta_tilde ** 2 + gamma ** 2 )
-        #         c, s = delta_tilde / delta, gamma / delta
-        #         C0[k, i], S0[k, i] = c, s
-
-        #         Rot_Mat = np.array([[c, s], [-s, c]])
-        #         T[index:index+2, :] = Rot_Mat @ T[index:index+2, :]
-        #         T1[index:index+2, :] = Rot_Mat @ T1[index:index+2, :]
+        _blrotation_of_s3mr(T, C0, S0, T1)
 
         Omega, G, G_tilde = T[:p, :], T1[:p, :], T1[p:, :]
         resvec = np.append(resvec, linalg.norm(G_tilde))
@@ -227,7 +156,57 @@ def _blrotation_of_s3mr(A, C, S, /, B=None):
             A[index:index+2, :] = Rot_Mat @ A[index:index+2, :]
             if B is not None:
                 B[index:index+2, :] = Rot_Mat @ B[index:index+2, :]
+
+
+# def gls3mr(S, B, alpha, /, tol: float=1e-6, maxit: int=None, X0=None) -> tuple[np.array, dict]:
+#     n = B.shape[0]
+
+#     if not maxit:
+#         maxit = n
     
-    if B is not None:
-        return A, B
-    return A
+#     if not X0:
+#         X0 = np.zeros(B.shape)
+#     X = X0
+    
+#     if not callable(S):
+#         S_Mut = lambda x: S @ x
+#     else:
+#         S_Mut = S
+    
+#     R = B - (S_Mut(X0) + alpha * X0)
+
+#     norm_r = linalg.norm(R)
+#     delta_tilde = alpha
+#     c0, s_1, s0 = 1, 0, 0
+#     gamma1 = norm_r
+#     phi_tilde = gamma1
+#     W0, W1 = 0, R / gamma1
+#     P_1 = P0 = 0
+
+#     flag, resvec = 1, np.array([norm_r])
+#     for j in range(maxit):
+#         if resvec[-1] / norm_r < tol:
+#             flag = 0
+#             break
+
+#         W = S_Mut(W1) + gamma1 * W0
+#         gamma2 = linalg.norm(W)
+#         delta = np.sqrt(delta_tilde ** 2 + gamma2 ** 2)
+#         c1, s1 = delta_tilde / delta, gamma2 / delta
+#         delta_tilde = alpha * c1 + gamma2 * c0 * s1
+#         phi, phi_tilde = c1 * phi_tilde, -s1 * phi_tilde
+
+#         if j < 2:
+#             P = W1 / delta
+#         else:
+#             P = (W1 + gamma1 * s_1 * P_1) / delta
+        
+#         X = X + phi * P
+#         resvec = np.append(resvec, np.abs(phi_tilde))
+
+#         gamma1 = gamma2
+#         W0, W1 = W1, W / gamma1
+#         P_1, P0 = P0, P
+#         c0, s_1, s0 = c1, s0, s1
+
+#     return X, {'exitflag': flag, 'iters': j + 1, 'resvec': resvec}
